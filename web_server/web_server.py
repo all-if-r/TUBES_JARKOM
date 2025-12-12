@@ -1,289 +1,320 @@
 #!/usr/bin/env python3
-
+"""
+TUBES JARKOM - Web Server with HTTP (TCP) and UDP Echo
+Supports single-threaded and multi-threaded modes
+"""
 
 import socket
 import threading
-import logging
-import os
 import time
+import sys
 from datetime import datetime
 from pathlib import Path
 
+# ================== CHANGE PORT HERE IF NEEDED ==================
+# If ports are already in use, change them here:
+TCP_PORT = 8000
+UDP_PORT = 9000
+SOCKET_TIMEOUT = 30
+# ===============================================================
 
-TCP_IP = "0.0.0.0"  # Listen on all network interfaces
-TCP_PORT = 8000     # HTTP port - change if conflicts occur
-UDP_IP = "0.0.0.0"  # Listen on all network interfaces
-UDP_PORT = 9000     # UDP echo port - change if conflicts occur
-HTML_FILE_PATH = "../test-tubes-jarkom.html"  # Relative path to HTML file
-SOCKET_TIMEOUT = 30  # Socket timeout in seconds (5-30 seconds recommended)
-# ============================================================================
-
-# Concurrency mode: Set to False for single-threaded, True for multi-threaded
-MULTI_THREADED = True
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - [%(levelname)s] - %(message)s',
-    handlers=[
-        logging.FileHandler('web_server.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+# Resolve paths relative to this file
+BASE_DIR = Path(__file__).resolve().parent
+HTML_FILE_PATH = BASE_DIR.parent / "test-tubes-jarkom.html"
 
 
-class WebServer:
-    """TCP HTTP Web Server component"""
-    
-    def __init__(self, ip, port, html_file_path):
-        self.ip = ip
-        self.port = port
-        self.html_file_path = html_file_path
-        self.socket = None
-        self.html_content = None
-        self.running = True
-        
-    def load_html_file(self):
-        """Load HTML file into memory"""
-        try:
-            with open(self.html_file_path, 'r', encoding='utf-8') as f:
-                self.html_content = f.read()
-            logger.info(f"HTML file loaded successfully ({len(self.html_content)} bytes)")
-            return True
-        except FileNotFoundError:
-            logger.error(f"HTML file not found at: {self.html_file_path}")
-            self.html_content = "<html><body><h1>404 - File Not Found</h1></body></html>"
-            return False
-        except Exception as e:
-            logger.error(f"Error loading HTML file: {e}")
-            self.html_content = "<html><body><h1>500 - Server Error</h1></body></html>"
-            return False
-    
-    def parse_http_request(self, request_data):
-        """Parse HTTP GET request and extract the path"""
-        try:
-            lines = request_data.split('\r\n')
-            request_line = lines[0]
-            parts = request_line.split()
-            
-            if len(parts) < 2:
-                return None
-            
-            method = parts[0]
-            path = parts[1]
-            
-            if method != "GET":
-                return None
-            
-            return path
-        except Exception as e:
-            logger.error(f"Error parsing HTTP request: {e}")
+def print_menu():
+    """Display server mode selection menu."""
+    print("\n" + "=" * 70)
+    print("TUBES JARKOM - Web Server")
+    print("=" * 70)
+    print("Pilih mode server:")
+    print("  1. Single-threaded mode")
+    print("  2. Multi-threaded mode (threaded)")
+    print("=" * 70)
+
+
+def load_html_file():
+    """
+    Load HTML file from repository.
+    Uses repo-relative path, not absolute Windows path.
+    Returns tuple: (success: bool, content: str)
+    """
+    try:
+        with open(HTML_FILE_PATH, 'r', encoding='utf-8') as f:
+            content = f.read()
+        print(f"✓ HTML file loaded ({len(content)} bytes)")
+        return True, content
+    except FileNotFoundError:
+        print(f"✗ HTML file not found: {HTML_FILE_PATH}")
+        content = "<html><body><h1>404 - File Not Found</h1></body></html>"
+        return False, content
+    except Exception as e:
+        print(f"✗ Error loading HTML: {e}")
+        content = "<html><body><h1>500 - Server Error</h1></body></html>"
+        return False, content
+
+
+def parse_http_request(request_data):
+    """
+    Parse HTTP GET request and extract the path.
+    Returns path string or None if invalid.
+    """
+    try:
+        lines = request_data.split('\r\n')
+        if not lines:
             return None
-    
-    def generate_http_response(self, status_code, content):
-        """Generate HTTP response with proper headers"""
-        status_messages = {
-            200: "OK",
-            404: "Not Found",
-            500: "Internal Server Error"
-        }
-        
-        status_msg = status_messages.get(status_code, "Unknown")
-        content_length = len(content.encode('utf-8'))
-        
-        response = (
-            f"HTTP/1.1 {status_code} {status_msg}\r\n"
-            f"Content-Type: text/html\r\n"
-            f"Content-Length: {content_length}\r\n"
-            f"Connection: close\r\n"
-            f"\r\n"
-            f"{content}"
+
+        request_line = lines[0]
+        parts = request_line.split()
+
+        if len(parts) < 2:
+            return None
+
+        method = parts[0]
+        path = parts[1]
+
+        if method != "GET":
+            return None
+
+        return path
+    except Exception:
+        return None
+
+
+def generate_http_response(status_code, content):
+    """
+    Generate HTTP response with proper headers.
+    Status codes: 200, 404, 500
+    """
+    status_messages = {
+        200: "OK",
+        404: "Not Found",
+        500: "Internal Server Error",
+    }
+
+    status_msg = status_messages.get(status_code, "Unknown")
+    content_bytes = content.encode('utf-8')
+    content_length = len(content_bytes)
+
+    response = (
+        f"HTTP/1.1 {status_code} {status_msg}\r\n"
+        f"Content-Type: text/html\r\n"
+        f"Content-Length: {content_length}\r\n"
+        f"Connection: close\r\n"
+        f"\r\n"
+        f"{content}"
+    )
+
+    return response
+
+
+def handle_tcp_client(client_socket, client_address, html_content):
+    """
+    Handle a single TCP client connection.
+    Receives HTTP request, processes it, and sends response.
+    Logs all details.
+    """
+    start_time = time.time()
+    client_ip = client_address[0]
+    client_port = client_address[1]
+    request_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+    try:
+        client_socket.settimeout(SOCKET_TIMEOUT)
+
+        # Receive HTTP request
+        request_data = client_socket.recv(4096).decode('utf-8', errors='ignore')
+
+        if not request_data:
+            print(f"[{request_time}] [{client_ip}:{client_port}] Empty request")
+            return
+
+        # Parse request path
+        path = parse_http_request(request_data)
+
+        if path is None:
+            response = generate_http_response(400, "<html><body><h1>400 - Bad Request</h1></body></html>")
+            resource = "INVALID"
+            status_code = 400
+        elif path in ["/", "/index.html"]:
+            # Return HTML file
+            response = generate_http_response(200, html_content)
+            resource = path
+            status_code = 200
+        else:
+            # Path not found
+            response = generate_http_response(404, "<html><body><h1>404 - Not Found</h1></body></html>")
+            resource = path
+            status_code = 404
+
+        # Send response
+        client_socket.sendall(response.encode('utf-8'))
+
+        # Calculate metrics
+        processing_time = (time.time() - start_time) * 1000  # milliseconds
+        response_size = len(response.encode('utf-8'))
+
+        # Log transaction
+        print(
+            f"[{request_time}] [TCP] Client: {client_ip}:{client_port} | "
+            f"Resource: {resource} | Status: {status_code} | "
+            f"Response Size: {response_size} bytes | Processing: {processing_time:.2f} ms"
         )
-        
-        return response
-    
-    def handle_client(self, client_socket, client_address):
-        """Handle a single client connection"""
-        start_time = time.time()
-        client_ip = client_address[0]
-        request_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        
+
+    except socket.timeout:
+        print(f"[{request_time}] [{client_ip}:{client_port}] Timeout after {SOCKET_TIMEOUT}s")
+    except Exception as e:
+        print(f"[{request_time}] [{client_ip}:{client_port}] Error: {e}")
+    finally:
         try:
-            client_socket.settimeout(SOCKET_TIMEOUT)
-            
-            # Receive HTTP request
-            request_data = client_socket.recv(4096).decode('utf-8')
-            
-            if not request_data:
-                logger.warning(f"[{client_ip}] Empty request received")
-                return
-            
-            # Parse request path
-            path = self.parse_http_request(request_data)
-            
-            if path is None:
-                response = self.generate_http_response(400, "<html><body><h1>400 - Bad Request</h1></body></html>")
-                resource = "INVALID"
-                status_code = 400
-            elif path in ["/", "/index.html"]:
-                # Return HTML file
-                response = self.generate_http_response(200, self.html_content)
-                resource = path
-                status_code = 200
-            else:
-                # Path not found
-                response = self.generate_http_response(404, "<html><body><h1>404 - Not Found</h1></body></html>")
-                resource = path
-                status_code = 404
-            
-            # Send response
-            client_socket.sendall(response.encode('utf-8'))
-            
-            # Calculate metrics
-            processing_time = (time.time() - start_time) * 1000  # Convert to ms
-            response_size = len(response.encode('utf-8'))
-            
-            # Log transaction
-            logger.info(
-                f"TCP | Client: {client_ip} | Time: {request_time} | "
-                f"Resource: {resource} | Status: {status_code} | "
-                f"Response Size: {response_size} bytes | Processing Time: {processing_time:.2f} ms"
-            )
-            
-        except socket.timeout:
-            logger.warning(f"[{client_ip}] Socket timeout after {SOCKET_TIMEOUT} seconds")
-        except Exception as e:
-            logger.error(f"[{client_ip}] Error handling client: {e}")
-        finally:
             client_socket.close()
-    
-    def start(self):
-        """Start the TCP server"""
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        
-        try:
-            self.socket.bind((self.ip, self.port))
-            self.socket.listen(5)
-            logger.info(f"TCP Server listening on {self.ip}:{self.port}")
-            
-            while self.running:
-                try:
-                    client_socket, client_address = self.socket.accept()
-                    
-                    if MULTI_THREADED:
-                        # Multi-threaded: handle each client in a new thread
-                        thread = threading.Thread(
-                            target=self.handle_client,
-                            args=(client_socket, client_address),
-                            daemon=True
-                        )
-                        thread.start()
-                    else:
-                        # Single-threaded: handle client sequentially
-                        self.handle_client(client_socket, client_address)
-                        
-                except KeyboardInterrupt:
-                    break
-                except Exception as e:
-                    logger.error(f"Error accepting client: {e}")
-                    
-        except socket.error as e:
-            logger.error(f"Socket error: {e}")
-        finally:
-            self.socket.close()
-            logger.info("TCP Server stopped")
-    
-    def stop(self):
-        """Stop the server"""
-        self.running = False
+        except Exception:
+            pass
 
 
-class UDPEchoServer:
-    """UDP Echo Server for QoS testing"""
-    
-    def __init__(self, ip, port):
-        self.ip = ip
-        self.port = port
-        self.socket = None
-        self.running = True
-    
-    def start(self):
-        """Start the UDP echo server"""
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        
-        try:
-            self.socket.bind((self.ip, self.port))
-            self.socket.settimeout(1.0)  # Non-blocking timeout for graceful shutdown
-            logger.info(f"UDP Echo Server listening on {self.ip}:{self.port}")
-            
-            while self.running:
-                try:
-                    data, client_address = self.socket.recvfrom(65535)
-                    client_ip = client_address[0]
-                    packet_size = len(data)
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-                    
-                    # Echo the data back
-                    self.socket.sendto(data, client_address)
-                    
-                    # Log packet
-                    logger.info(
-                        f"UDP | Source IP: {client_ip} | Packet Size: {packet_size} bytes | "
-                        f"Timestamp: {timestamp}"
+def tcp_server_loop(is_multithreaded, html_content):
+    """
+    TCP Server main loop.
+    - Single-threaded: handles clients sequentially
+    - Multi-threaded: spawns worker thread for each client
+    """
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    try:
+        server_socket.bind(("0.0.0.0", TCP_PORT))
+        server_socket.listen(5)
+        print(f"\n✓ TCP Server listening on 0.0.0.0:{TCP_PORT} ({'Multi-threaded' if is_multithreaded else 'Single-threaded'})")
+        print(f"  Mode: {'Parallel request handling' if is_multithreaded else 'Sequential request handling'}")
+
+        while True:
+            try:
+                client_socket, client_address = server_socket.accept()
+
+                if is_multithreaded:
+                    # Multi-threaded: spawn worker thread
+                    thread = threading.Thread(
+                        target=handle_tcp_client,
+                        args=(client_socket, client_address, html_content),
+                        daemon=True
                     )
-                    
-                except socket.timeout:
-                    continue
-                except Exception as e:
-                    logger.error(f"Error in UDP handler: {e}")
-                    
-        except socket.error as e:
-            logger.error(f"UDP Socket error: {e}")
-        finally:
-            self.socket.close()
-            logger.info("UDP Echo Server stopped")
-    
-    def stop(self):
-        """Stop the UDP server"""
-        self.running = False
+                    thread.start()
+                else:
+                    # Single-threaded: handle sequentially
+                    handle_tcp_client(client_socket, client_address, html_content)
+
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                print(f"✗ Error accepting TCP client: {e}")
+
+    except OSError as e:
+        print(f"✗ TCP Socket error: {e}")
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server_socket.close()
+        print("✓ TCP Server stopped")
+
+
+def udp_echo_server_loop():
+    """
+    UDP Echo Server main loop.
+    Echoes back any received datagram immediately.
+    Runs in separate thread regardless of TCP mode.
+    """
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    try:
+        server_socket.bind(("0.0.0.0", UDP_PORT))
+        server_socket.settimeout(1.0)  # For graceful shutdown
+        print(f"✓ UDP Echo Server listening on 0.0.0.0:{UDP_PORT}")
+
+        while True:
+            try:
+                data, client_address = server_socket.recvfrom(65535)
+                client_ip = client_address[0]
+                client_port = client_address[1]
+                packet_size = len(data)
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+                # Echo the data back immediately (no retransmission logic)
+                server_socket.sendto(data, client_address)
+
+                # Log packet
+                print(
+                    f"[{timestamp}] [UDP] Source: {client_ip}:{client_port} | "
+                    f"Packet Size: {packet_size} bytes"
+                )
+
+            except socket.timeout:
+                continue
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                print(f"✗ UDP error: {e}")
+
+    except OSError as e:
+        print(f"✗ UDP Socket error: {e}")
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server_socket.close()
+        print("✓ UDP Echo Server stopped")
 
 
 def main():
-    """Main server startup function"""
-    logger.info("=" * 70)
-    logger.info("Web Server starting...")
-    logger.info(f"Mode: {'Multi-threaded' if MULTI_THREADED else 'Single-threaded'}")
-    logger.info("=" * 70)
-    
-    # Initialize TCP Web Server
-    web_server = WebServer(TCP_IP, TCP_PORT, HTML_FILE_PATH)
-    web_server.load_html_file()
-    
-    # Initialize UDP Echo Server
-    udp_server = UDPEchoServer(UDP_IP, UDP_PORT)
-    
-    # Start TCP server in main thread
-    tcp_thread = threading.Thread(target=web_server.start, daemon=False)
-    tcp_thread.start()
-    
-    # Start UDP server in separate thread
-    udp_thread = threading.Thread(target=udp_server.start, daemon=True)
+    """
+    Main entry point.
+    1. Display menu
+    2. Load HTML file
+    3. Start both TCP and UDP servers
+    """
+    print_menu()
+
+    # Get user choice
+    while True:
+        choice = input("Masukkan pilihan (1 atau 2): ").strip()
+        if choice in ("1", "2"):
+            break
+        print("✗ Pilihan tidak valid. Masukkan 1 atau 2.")
+
+    is_multithreaded = choice == "2"
+
+    # Load HTML file
+    success, html_content = load_html_file()
+
+    # Print startup info
+    print("\n" + "=" * 70)
+    print("TUBES JARKOM Web Server")
+    print("=" * 70)
+    print(f"Mode: {'Multi-threaded (threaded)' if is_multithreaded else 'Single-threaded'}")
+    print(f"  • Single-threaded: Handles TCP requests one at a time, sequentially")
+    print(f"  • Multi-threaded: Each TCP request is handled in a separate thread")
+    print(f"TCP Port: {TCP_PORT}")
+    print(f"UDP Port: {UDP_PORT}")
+    print(f"HTML File: {HTML_FILE_PATH}")
+    print("Press Ctrl+C to stop servers")
+    print("=" * 70)
+
+    # Start UDP server in background thread
+    udp_thread = threading.Thread(target=udp_echo_server_loop, daemon=True)
     udp_thread.start()
-    
+
+    # Start TCP server in main thread
     try:
-        # Keep the server running
-        while True:
-            time.sleep(1)
+        tcp_server_loop(is_multithreaded, html_content)
     except KeyboardInterrupt:
-        logger.info("Shutting down servers...")
-        web_server.stop()
-        udp_server.stop()
-        tcp_thread.join(timeout=5)
-        logger.info("Servers stopped")
+        print("\n\nShutting down servers...")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\nServer stopped by user.")
+        sys.exit(0)
+

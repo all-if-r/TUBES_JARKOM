@@ -1,448 +1,473 @@
 #!/usr/bin/env python3
-
+"""
+TUBES JARKOM - Client Socket Programming
+Supports HTTP, Browser, and UDP QoS modes
+"""
 
 import socket
+import sys
 import threading
 import time
-import sys
-import csv
 import statistics
+import csv
+import webbrowser
+from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
-import argparse
+
+# ================== CHANGE IP/PORT HERE IF NETWORK CHANGES ==================
+# If the network configuration changes, update these values:
+PROXY_IP = "10.60.14.86"
+PROXY_TCP_PORT = 8080
+PROXY_UDP_PORT = 9090
+SOCKET_TIMEOUT = 5.0
+# ============================================================================
+
+# Base directory for saving files (repo-relative, works on any machine after clone)
+BASE_DIR = Path(__file__).resolve().parent
 
 
-PROXY_IP = "10.60.14.86"            
-PROXY_TCP_PORT = 8080               
-PROXY_UDP_PORT = 9090                
-REQUEST_PATH = "/"                   
-SOCKET_TIMEOUT = 10                  
+def print_menu():
+    """Display the main menu."""
+    print("\n" + "=" * 60)
+    print("TUBES JARKOM - Socket Programming Client")
+    print("=" * 60)
+    print("Pilih mode:")
+    print("  1. Mode HTTP")
+    print("  2. Mode UDP (QoS)")
+    print("  3. Mode Browser")
+    print("=" * 60)
 
 
-# Global logging lock
-log_lock = threading.Lock()
+def http_mode():
+    """HTTP mode: send GET request via TCP to proxy, display response."""
+    print("\n--- Mode HTTP ---")
+    try:
+        path = input("Masukkan path (default '/'): ").strip()
+        if not path:
+            path = "/"
+
+        # Create TCP socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(SOCKET_TIMEOUT)
+
+        print(f"Connecting to {PROXY_IP}:{PROXY_TCP_PORT}...")
+        sock.connect((PROXY_IP, PROXY_TCP_PORT))
+
+        # Build and send HTTP GET request
+        request = f"GET {path} HTTP/1.1\r\nHost: {PROXY_IP}\r\nConnection: close\r\n\r\n"
+        sock.sendall(request.encode())
+
+        # Receive response
+        response = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            response += chunk
+
+        sock.close()
+
+        # Parse response
+        response_str = response.decode(errors="ignore")
+        lines = response_str.split("\r\n")
+
+        if lines:
+            # Print status line
+            print(f"\n[Status]: {lines[0]}")
+
+            # Find and print body preview
+            body_start = response_str.find("\r\n\r\n")
+            if body_start != -1:
+                body = response_str[body_start + 4:]
+                preview_len = min(500, len(body))
+                print(f"\n[Body Preview] ({len(body)} bytes total):")
+                print(body[:preview_len])
+                if len(body) > preview_len:
+                    print(f"... (truncated, {len(body) - preview_len} bytes more)")
+
+        print("\n✓ HTTP request completed successfully.")
+
+    except socket.timeout:
+        print(f"✗ Error: Connection timeout (>{SOCKET_TIMEOUT}s)")
+    except ConnectionRefusedError:
+        print(f"✗ Error: Connection refused to {PROXY_IP}:{PROXY_TCP_PORT}")
+    except Exception as e:
+        print(f"✗ Error: {type(e).__name__}: {e}")
 
 
-def log_message(message):
-    """Thread-safe logging"""
-    with log_lock:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        print(f"[{timestamp}] {message}")
+def browser_mode():
+    """Browser mode: fetch HTML from proxy, save to file, open in browser."""
+    print("\n--- Mode Browser ---")
+    try:
+        # Create TCP socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(SOCKET_TIMEOUT)
 
+        print(f"Connecting to {PROXY_IP}:{PROXY_TCP_PORT}...")
+        sock.connect((PROXY_IP, PROXY_TCP_PORT))
 
-class HTTPClient:
-    """TCP HTTP Client"""
-    
-    def __init__(self, proxy_ip, proxy_port, request_path="/"):
-        self.proxy_ip = proxy_ip
-        self.proxy_port = proxy_port
-        self.request_path = request_path
-    
-    def send_request(self, save_to_file=None):
-        """Send HTTP GET request to proxy and display response"""
-        try:
-            # Create socket
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(SOCKET_TIMEOUT)
-            
-            log_message(f"[TCP] Connecting to proxy {self.proxy_ip}:{self.proxy_port}...")
-            sock.connect((self.proxy_ip, self.proxy_port))
-            log_message(f"[TCP] Connected to proxy")
-            
-            # Create HTTP request
-            request = (
-                f"GET {self.request_path} HTTP/1.1\r\n"
-                f"Host: {self.proxy_ip}:{self.proxy_port}\r\n"
-                f"Connection: close\r\n"
-                f"\r\n"
-            )
-            
-            start_time = time.time()
-            
-            # Send request
-            log_message(f"[TCP] Sending HTTP GET {self.request_path}...")
-            sock.sendall(request.encode('utf-8'))
-            
-            # Receive response
-            response = b""
-            while True:
+        # Send HTTP GET request for /
+        request = f"GET / HTTP/1.1\r\nHost: {PROXY_IP}\r\nConnection: close\r\n\r\n"
+        sock.sendall(request.encode())
+
+        # Receive response
+        response = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            response += chunk
+
+        sock.close()
+
+        # Parse HTTP response
+        response_str = response.decode(errors="ignore")
+        body_start = response_str.find("\r\n\r\n")
+
+        if body_start != -1:
+            body = response_str[body_start + 4:]
+
+            # Save to file using repo-relative path
+            output_file = BASE_DIR / "browser_result.html"
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(body)
+
+            print(f"✓ HTML saved to {output_file}")
+
+            # Open in browser
+            browser_path = output_file.as_uri()
+            webbrowser.open(browser_path)
+            print("✓ Browser opened successfully.")
+
+        else:
+            print("✗ Error: Could not parse HTTP response")
+
+    except socket.timeout:
+        print(f"✗ Error: Connection timeout (>{SOCKET_TIMEOUT}s)")
+    except ConnectionRefusedError:
+        print(f"✗ Error: Connection refused to {PROXY_IP}:{PROXY_TCP_PORT}")
+    except Exception as e:
+        print(f"✗ Error: {type(e).__name__}: {e}")
+def udp_qos_worker(client_id, num_packets, payload_size, interval_ms, results_dict):
+    """
+    Worker function for UDP QoS test.
+    Sends N packets and measures RTT, jitter, and throughput for this client.
+
+    Args:
+        client_id: Unique ID for this client
+        num_packets: Number of packets to send (typically 10)
+        payload_size: Size of payload in bytes
+        interval_ms: Interval between packets in milliseconds
+        results_dict: Shared dictionary to store results per client
+    """
+    results = {
+        "sent": 0,
+        "received": 0,
+        "rtts": [],
+        "total_bytes": 0,
+        "start_time": time.time(),
+        "end_time": None,
+    }
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(SOCKET_TIMEOUT)
+
+        interval_sec = interval_ms / 1000.0
+
+        for seq in range(num_packets):
+            try:
+                # Build payload with client ID, sequence, and timestamp
+                ts_ns = int(time.time_ns())
+                payload = f"cid={client_id};seq={seq};ts={ts_ns}".encode()
+
+                # Pad to payload_size
+                if len(payload) < payload_size:
+                    payload += b"\x00" * (payload_size - len(payload))
+                else:
+                    payload = payload[:payload_size]
+
+                # Send packet
+                send_time_ns = time.time_ns()
+                sock.sendto(payload, (PROXY_IP, PROXY_UDP_PORT))
+                results["sent"] += 1
+
+                # Wait for response
                 try:
-                    chunk = sock.recv(4096)
-                    if not chunk:
-                        break
-                    response += chunk
+                    response, _ = sock.recvfrom(payload_size + 64)
+                    recv_time_ns = time.time_ns()
+                    rtt_ms = (recv_time_ns - send_time_ns) / 1_000_000
+                    results["rtts"].append(rtt_ms)
+                    results["received"] += 1
+                    results["total_bytes"] += len(response)
+
                 except socket.timeout:
-                    break
-            
-            sock.close()
-            
-            processing_time = (time.time() - start_time) * 1000
-            response_str = response.decode('utf-8', errors='ignore')
-            response_size = len(response)
-            
-            # Parse response headers and body
-            parts = response_str.split('\r\n\r\n', 1)
-            headers = parts[0] if len(parts) > 0 else ""
-            body = parts[1] if len(parts) > 1 else ""
-            
-            # Extract status code
-            status_line = headers.split('\r\n')[0] if headers else ""
-            
-            log_message(f"[TCP] Response received in {processing_time:.2f} ms ({response_size} bytes)")
-            log_message(f"[TCP] Status: {status_line}")
-            log_message(f"[TCP] Response Headers:\n{headers}")
-            log_message(f"[TCP] Response Body:\n{body}")
-            
-            # Save to file if requested
-            if save_to_file:
-                try:
-                    with open(save_to_file, 'w', encoding='utf-8') as f:
-                        f.write(body)
-                    log_message(f"[TCP] Response body saved to {save_to_file}")
-                except Exception as e:
-                    log_message(f"[TCP] Error saving to file: {e}")
-            
-            return True
-            
-        except socket.timeout:
-            log_message(f"[TCP] Socket timeout after {SOCKET_TIMEOUT} seconds")
-        except ConnectionRefusedError:
-            log_message(f"[TCP] Connection refused by proxy {self.proxy_ip}:{self.proxy_port}")
-        except Exception as e:
-            log_message(f"[TCP] Error: {e}")
-        
-        return False
+                    # Packet lost, no response
+                    pass
+
+                # Wait interval before next packet (except after last packet)
+                if seq < num_packets - 1:
+                    time.sleep(interval_sec)
+
+            except Exception as e:
+                # Error sending/receiving individual packet
+                pass
+
+        results["end_time"] = time.time()
+        sock.close()
+
+    except Exception as e:
+        print(f"✗ Client {client_id} error: {e}")
+
+    results_dict[client_id] = results
 
 
-class QoSMetrics:
-    """Calculate QoS metrics"""
-    
-    def __init__(self):
-        self.latencies = []
-        self.received_packets = 0
-        self.sent_packets = 0
-        self.start_time = None
-        self.end_time = None
-    
-    def add_latency(self, latency):
-        """Add a latency measurement"""
-        self.latencies.append(latency)
-        self.received_packets += 1
-    
-    def calculate_stats(self):
-        """Calculate QoS statistics"""
-        if not self.latencies:
-            return None
-        
-        stats = {
-            "sent_packets": self.sent_packets,
-            "received_packets": self.received_packets,
-            "packet_loss": ((self.sent_packets - self.received_packets) / self.sent_packets * 100) if self.sent_packets > 0 else 0,
-            "min_latency": min(self.latencies),
-            "max_latency": max(self.latencies),
-            "avg_latency": statistics.mean(self.latencies),
-            "jitter": statistics.stdev(self.latencies) if len(self.latencies) > 1 else 0,
-            "throughput": (self.received_packets / (self.end_time - self.start_time)) if (self.end_time - self.start_time) > 0 else 0,
-        }
-        
-        return stats
-    
-    def print_results(self):
-        """Print QoS results"""
-        stats = self.calculate_stats()
-        
-        if not stats:
-            log_message("[QoS] No packets received")
-            return
-        
-        log_message("=" * 70)
-        log_message("[QoS] STATISTICS SUMMARY")
-        log_message("=" * 70)
-        log_message(f"Packets Sent: {stats['sent_packets']}")
-        log_message(f"Packets Received: {stats['received_packets']}")
-        log_message(f"Packet Loss: {stats['packet_loss']:.2f}%")
-        log_message(f"Min Latency: {stats['min_latency']:.3f} ms")
-        log_message(f"Max Latency: {stats['max_latency']:.3f} ms")
-        log_message(f"Average Latency: {stats['avg_latency']:.3f} ms")
-        log_message(f"Jitter (Std Dev): {stats['jitter']:.3f} ms")
-        log_message(f"Throughput: {stats['throughput']:.2f} packets/sec")
-        log_message("=" * 70)
-    
-    def export_to_csv(self, filename):
-        """Export results to CSV file"""
+def udp_qos_mode():
+    """UDP QoS mode: test packet delivery and measure QoS metrics."""
+    print("\n--- Mode UDP (QoS) ---")
+
+    try:
+        # Get number of clients
+        while True:
+            try:
+                num_clients = int(input("Jumlah client yang diinginkan: ").strip())
+                if num_clients < 1:
+                    print("✗ Jumlah client harus >= 1")
+                    continue
+                break
+            except ValueError:
+                print("✗ Input tidak valid, masukkan angka")
+
+        # Get web server mode for CSV naming
+        while True:
+            web_server_mode = input("Mode web_server saat ini? (single/threaded): ").strip().lower()
+            if web_server_mode in ("single", "threaded"):
+                break
+            print("✗ Pilih 'single' atau 'threaded'")
+
+        # Get QoS parameters from user
+        payload_input = input("Payload size (bytes, default 256): ").strip()
         try:
-            stats = self.calculate_stats()
-            if not stats:
-                log_message("[QoS] No data to export")
-                return False
-            
-            with open(filename, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(["Metric", "Value"])
-                writer.writerow(["Packets Sent", stats['sent_packets']])
-                writer.writerow(["Packets Received", stats['received_packets']])
-                writer.writerow(["Packet Loss %", f"{stats['packet_loss']:.2f}"])
-                writer.writerow(["Min Latency (ms)", f"{stats['min_latency']:.3f}"])
-                writer.writerow(["Max Latency (ms)", f"{stats['max_latency']:.3f}"])
-                writer.writerow(["Avg Latency (ms)", f"{stats['avg_latency']:.3f}"])
-                writer.writerow(["Jitter (ms)", f"{stats['jitter']:.3f}"])
-                writer.writerow(["Throughput (pkt/s)", f"{stats['throughput']:.2f}"])
-                
-                # Write individual latencies
-                writer.writerow([])
-                writer.writerow(["Packet", "Latency (ms)"])
-                for i, latency in enumerate(self.latencies, 1):
-                    writer.writerow([i, f"{latency:.3f}"])
-            
-            log_message(f"[QoS] Results exported to {filename}")
-            return True
-            
-        except Exception as e:
-            log_message(f"[QoS] Error exporting to CSV: {e}")
-            return False
+            payload_size = int(payload_input) if payload_input else 256
+            if payload_size < 1:
+                payload_size = 256
+        except ValueError:
+            payload_size = 256
 
-
-class UDPQoSClient:
-    """UDP QoS Testing Client"""
-    
-    def __init__(self, proxy_ip, proxy_port, packet_size=64, packet_count=10, interval=0.1):
-        self.proxy_ip = proxy_ip
-        self.proxy_port = proxy_port
-        self.packet_size = packet_size
-        self.packet_count = packet_count
-        self.interval = interval
-        self.metrics = QoSMetrics()
-    
-    def send_qos_test(self):
-        """Send QoS test packets"""
+        interval_input = input("Interval antar packet (ms, default 50): ").strip()
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(SOCKET_TIMEOUT)
-            
-            log_message(f"[UDP] Starting QoS test:")
-            log_message(f"[UDP] - Proxy: {self.proxy_ip}:{self.proxy_port}")
-            log_message(f"[UDP] - Packet size: {self.packet_size} bytes")
-            log_message(f"[UDP] - Packet count: {self.packet_count}")
-            log_message(f"[UDP] - Interval: {self.interval} sec")
-            
-            # Create payload
-            payload = b"X" * self.packet_size
-            
-            self.metrics.start_time = time.time()
-            self.metrics.sent_packets = self.packet_count
-            
-            # Send packets
-            for i in range(self.packet_count):
-                try:
-                    send_time = time.time()
-                    sock.sendto(payload, (self.proxy_ip, self.proxy_port))
-                    
-                    # Try to receive echo
-                    try:
-                        response, _ = sock.recvfrom(self.packet_size + 1024)
-                        recv_time = time.time()
-                        latency = (recv_time - send_time) * 1000  # Convert to ms
-                        self.metrics.add_latency(latency)
-                        log_message(f"[UDP] Packet {i+1}/{self.packet_count}: {latency:.3f} ms")
-                    except socket.timeout:
-                        log_message(f"[UDP] Packet {i+1}/{self.packet_count}: TIMEOUT")
-                    
-                    # Wait before sending next packet
-                    if i < self.packet_count - 1:
-                        time.sleep(self.interval)
-                
-                except Exception as e:
-                    log_message(f"[UDP] Error sending packet {i+1}: {e}")
-            
-            self.metrics.end_time = time.time()
-            sock.close()
-            
-            # Print results
-            self.metrics.print_results()
-            
-            return True
-            
-        except Exception as e:
-            log_message(f"[UDP] Error: {e}")
-            return False
+            interval_ms = int(interval_input) if interval_input else 50
+            if interval_ms < 1:
+                interval_ms = 50
+        except ValueError:
+            interval_ms = 50
 
+        print(f"\n[QoS Configuration]")
+        print(f"  Num clients: {num_clients}")
+        print(f"  Packets per client: 10")
+        print(f"  Payload size: {payload_size} bytes")
+        print(f"  Interval: {interval_ms} ms")
+        print()
 
-class MultiClientSimulator:
-    """Simulate multiple concurrent clients"""
-    
-    def __init__(self, num_clients, mode="http"):
-        self.num_clients = num_clients
-        self.mode = mode
-        self.results = []
-        self.lock = threading.Lock()
-    
-    def run_http_client(self, client_id):
-        """Run a single HTTP client"""
-        log_message(f"[Multi-Client] Client {client_id} starting HTTP test...")
-        
-        client = HTTPClient(PROXY_IP, PROXY_TCP_PORT, REQUEST_PATH)
-        success = client.send_request()
-        
-        with self.lock:
-            self.results.append({
-                "client_id": client_id,
-                "mode": "HTTP",
-                "success": success
-            })
-        
-        log_message(f"[Multi-Client] Client {client_id} finished")
-    
-    def run_qos_client(self, client_id):
-        """Run a single QoS client"""
-        log_message(f"[Multi-Client] Client {client_id} starting UDP QoS test...")
-        
-        qos_client = UDPQoSClient(
-            PROXY_IP, PROXY_UDP_PORT,
-            packet_size=64,
-            packet_count=10,
-            interval=0.1
-        )
-        success = qos_client.send_qos_test()
-        
-        with self.lock:
-            self.results.append({
-                "client_id": client_id,
-                "mode": "UDP",
-                "success": success
-            })
-        
-        log_message(f"[Multi-Client] Client {client_id} finished")
-    
-    def simulate(self):
-        """Simulate multiple concurrent clients"""
+        # Determine single vs multi
+        client_mode = "single" if num_clients == 1 else "multi"
+
+        # Run QoS test
+        print(f"Starting UDP QoS test ({num_clients} client(s))...")
+
+        results_dict = {}
         threads = []
-        
-        for i in range(1, self.num_clients + 1):
-            if self.mode == "http":
-                thread = threading.Thread(
-                    target=self.run_http_client,
-                    args=(i,),
-                    daemon=False
-                )
-            else:  # UDP
-                thread = threading.Thread(
-                    target=self.run_qos_client,
-                    args=(i,),
-                    daemon=False
-                )
-            
+        test_start = time.time()
+
+        # Create and start threads
+        for cid in range(num_clients):
+            thread = threading.Thread(
+                target=udp_qos_worker,
+                args=(cid, 10, payload_size, interval_ms, results_dict),
+                daemon=False,
+            )
             threads.append(thread)
             thread.start()
-            
-            # Stagger client starts
-            time.sleep(0.5)
-        
-        # Wait for all clients to finish
+
+        # Wait for all threads
         for thread in threads:
             thread.join()
-        
-        # Print summary
-        log_message("=" * 70)
-        log_message("[Multi-Client] SUMMARY")
-        log_message("=" * 70)
-        
-        successful = sum(1 for r in self.results if r["success"])
-        log_message(f"Total Clients: {self.num_clients}")
-        log_message(f"Successful: {successful}")
-        log_message(f"Failed: {self.num_clients - successful}")
-        log_message("=" * 70)
+
+        test_end = time.time()
+        test_duration = test_end - test_start
+
+        # Compute per-client statistics
+        print("\n" + "=" * 80)
+        print("Per-Client QoS Statistics:")
+        print("=" * 80)
+
+        client_stats = {}
+
+        for cid in sorted(results_dict.keys()):
+            result = results_dict[cid]
+            sent = result["sent"]
+            received = result["received"]
+            loss_percent = 100.0 * (sent - received) / sent if sent > 0 else 0.0
+
+            rtts = result["rtts"]
+            avg_rtt_ms = statistics.mean(rtts) if rtts else 0.0
+
+            # Jitter: average absolute difference between consecutive RTTs
+            jitter_ms = 0.0
+            if len(rtts) > 1:
+                diffs = [abs(rtts[i + 1] - rtts[i]) for i in range(len(rtts) - 1)]
+                jitter_ms = statistics.mean(diffs)
+
+            # Throughput: total bytes / duration
+            duration = result["end_time"] - result["start_time"] if result["end_time"] else 0.0001
+            throughput_bps = (result["total_bytes"] * 8 / duration) if duration > 0 else 0.0
+
+            client_stats[cid] = {
+                "sent": sent,
+                "received": received,
+                "loss_percent": loss_percent,
+                "avg_rtt_ms": avg_rtt_ms,
+                "jitter_ms": jitter_ms,
+                "throughput_bps": throughput_bps,
+                "total_bytes": result["total_bytes"],
+                "duration": duration,
+            }
+
+            print(f"Client {cid}:")
+            print(f"  Sent: {sent}, Received: {received}, Loss: {loss_percent:.2f}%")
+            print(f"  Avg RTT: {avg_rtt_ms:.3f} ms, Jitter: {jitter_ms:.3f} ms")
+            print(f"  Throughput: {throughput_bps:.2f} bps ({throughput_bps/1000:.2f} kbps)")
+
+        # Compute aggregate statistics
+        print("\n" + "=" * 80)
+        print("Aggregate QoS Statistics:")
+        print("=" * 80)
+
+        total_sent = sum(s["sent"] for s in client_stats.values())
+        total_received = sum(s["received"] for s in client_stats.values())
+        overall_loss_percent = 100.0 * (total_sent - total_received) / total_sent if total_sent > 0 else 0.0
+
+        # Overall avg RTT: average of all RTT samples across all clients
+        all_rtts = []
+        for cid in results_dict:
+            all_rtts.extend(results_dict[cid]["rtts"])
+        overall_avg_rtt = statistics.mean(all_rtts) if all_rtts else 0.0
+
+        # Overall jitter: average of per-client jitter values
+        overall_jitter = statistics.mean(s["jitter_ms"] for s in client_stats.values()) if client_stats else 0.0
+
+        # Overall throughput: sum of bytes / overall test duration
+        total_bytes = sum(s["total_bytes"] for s in client_stats.values())
+        overall_throughput_bps = (total_bytes * 8 / test_duration) if test_duration > 0 else 0.0
+
+        print(f"Total Sent: {total_sent}, Total Received: {total_received}")
+        print(f"Overall Loss: {overall_loss_percent:.2f}%")
+        print(f"Overall Avg RTT: {overall_avg_rtt:.3f} ms")
+        print(f"Overall Jitter: {overall_jitter:.3f} ms")
+        print(f"Overall Throughput: {overall_throughput_bps:.2f} bps ({overall_throughput_bps/1000:.2f} kbps)")
+
+        # Save to CSV
+        csv_filename = f"{web_server_mode}_{client_mode}.csv"
+        csv_path = BASE_DIR / csv_filename
+
+        try:
+            with open(csv_path, "w", newline="", encoding="utf-8") as csvfile:
+                writer = csv.writer(csvfile)
+
+                # Header
+                writer.writerow([
+                    "timestamp",
+                    "web_server_mode",
+                    "client_mode",
+                    "num_clients",
+                    "packets_per_client",
+                    "payload_bytes",
+                    "interval_ms",
+                    "client_id",
+                    "sent",
+                    "received",
+                    "loss_percent",
+                    "avg_rtt_ms",
+                    "jitter_ms",
+                    "throughput_bps",
+                ])
+
+                timestamp = datetime.now().isoformat()
+
+                # Per-client rows
+                for cid in sorted(client_stats.keys()):
+                    stat = client_stats[cid]
+                    writer.writerow([
+                        timestamp,
+                        web_server_mode,
+                        client_mode,
+                        num_clients,
+                        10,
+                        payload_size,
+                        interval_ms,
+                        cid,
+                        stat["sent"],
+                        stat["received"],
+                        f"{stat['loss_percent']:.2f}",
+                        f"{stat['avg_rtt_ms']:.3f}",
+                        f"{stat['jitter_ms']:.3f}",
+                        f"{stat['throughput_bps']:.2f}",
+                    ])
+
+                # Aggregate row
+                writer.writerow([
+                    timestamp,
+                    web_server_mode,
+                    client_mode,
+                    num_clients,
+                    10,
+                    payload_size,
+                    interval_ms,
+                    "ALL",
+                    total_sent,
+                    total_received,
+                    f"{overall_loss_percent:.2f}",
+                    f"{overall_avg_rtt:.3f}",
+                    f"{overall_jitter:.3f}",
+                    f"{overall_throughput_bps:.2f}",
+                ])
+
+            print(f"\n✓ Results saved to {csv_path}")
+
+        except Exception as e:
+            print(f"✗ Error saving CSV: {e}")
+
+    except Exception as e:
+        print(f"✗ Error: {type(e).__name__}: {e}")
 
 
 def main():
-    """Main client function"""
-    parser = argparse.ArgumentParser(description="Computer Networks Project Client")
-    parser.add_argument(
-        "--mode",
-        choices=["http", "qos", "multi"],
-        default="http",
-        help="Client mode: http (default), qos, or multi-client"
-    )
-    parser.add_argument(
-        "--path",
-        default="/",
-        help="HTTP request path (default: /)"
-    )
-    parser.add_argument(
-        "--save",
-        help="Save HTTP response to file"
-    )
-    parser.add_argument(
-        "--pkt-size",
-        type=int,
-        default=64,
-        help="QoS packet size in bytes (default: 64)"
-    )
-    parser.add_argument(
-        "--pkt-count",
-        type=int,
-        default=10,
-        help="QoS packet count (default: 10)"
-    )
-    parser.add_argument(
-        "--pkt-interval",
-        type=float,
-        default=0.1,
-        help="QoS packet interval in seconds (default: 0.1)"
-    )
-    parser.add_argument(
-        "--num-clients",
-        type=int,
-        default=2,
-        help="Number of concurrent clients for multi-client mode (default: 2, max: 5)"
-    )
-    parser.add_argument(
-        "--export-csv",
-        help="Export QoS results to CSV file"
-    )
-    
-    args = parser.parse_args()
-    
-    log_message("=" * 70)
-    log_message(f"Client starting in {args.mode.upper()} mode")
-    log_message(f"Proxy: {PROXY_IP}:{PROXY_TCP_PORT}")
-    log_message("=" * 70)
-    
-    if args.mode == "http":
-        # HTTP mode
-        client = HTTPClient(PROXY_IP, PROXY_TCP_PORT, args.path)
-        client.send_request(save_to_file=args.save)
-        
-    elif args.mode == "qos":
-        # QoS mode
-        qos_client = UDPQoSClient(
-            PROXY_IP, PROXY_UDP_PORT,
-            packet_size=args.pkt_size,
-            packet_count=args.pkt_count,
-            interval=args.pkt_interval
-        )
-        qos_client.send_qos_test()
-        
-        # Export to CSV if requested
-        if args.export_csv:
-            qos_client.metrics.export_to_csv(args.export_csv)
-        
-    elif args.mode == "multi":
-        # Multi-client simulation
-        num_clients = min(args.num_clients, 5)  # Max 5 clients
-        
-        # Alternate between HTTP and UDP for multi-client demo
-        simulator = MultiClientSimulator(num_clients // 2, mode="http")
-        simulator.simulate()
-        
-        time.sleep(2)  # Brief pause between tests
-        
-        simulator_qos = MultiClientSimulator(num_clients // 2, mode="udp")
-        simulator_qos.simulate()
-    
-    log_message("=" * 70)
-    log_message("Client finished")
-    log_message("=" * 70)
+    """Main entry point."""
+    while True:
+        print_menu()
+        choice = input("Masukkan pilihan (1/2/3) atau 'q' untuk keluar: ").strip().lower()
+
+        if choice == "q":
+            print("\nTerima kasih telah menggunakan TUBES JARKOM client. Goodbye!")
+            sys.exit(0)
+
+        elif choice == "1":
+            http_mode()
+
+        elif choice == "2":
+            udp_qos_mode()
+
+        elif choice == "3":
+            browser_mode()
+
+        else:
+            print("✗ Pilihan tidak valid. Silakan masukkan 1, 2, 3, atau 'q'.")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\nProgram dihentikan oleh user.")
+        sys.exit(0)
