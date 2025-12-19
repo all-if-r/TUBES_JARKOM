@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-
 import socket
 import threading
 import logging
@@ -11,13 +10,13 @@ from collections import defaultdict
 import json
 
 
-CLIENT_BIND_IP = "0.0.0.0"           # Listen on all interfaces for clients
-CLIENT_TCP_PORT = 8080               # Port for client HTTP requests
-CLIENT_UDP_PORT = 9090               # Port for client UDP packets
-WEB_SERVER_IP = "10.60.14.89"        # *** CRITICAL: Change if web server IP changes ***
-WEB_SERVER_TCP_PORT = 8000           # Web server HTTP port
-WEB_SERVER_UDP_PORT = 9000           # Web server UDP echo port
-SOCKET_TIMEOUT = 8                   # Socket timeout in seconds (5-10 seconds recommended)
+CLIENT_BIND_IP = "0.0.0.0"           
+CLIENT_TCP_PORT = 8080               
+CLIENT_UDP_PORT = 9090               
+WEB_SERVER_IP = "10.60.14.89"        #ip laptop ryan
+WEB_SERVER_TCP_PORT = 8000           
+WEB_SERVER_UDP_PORT = 9000           
+SOCKET_TIMEOUT = 8                   # 5-10 rekomendasinya
 
 
 # Configure logging
@@ -33,23 +32,23 @@ logger = logging.getLogger(__name__)
 
 
 class HTTPCache:
-    """In-memory HTTP response cache with HTTP 200 OK filtering"""
+    """Cache respons HTTP dalam memori dengan penyaringan respons HTTP 200 OK"""
     
     def __init__(self):
         self.cache = {}
         self.lock = threading.Lock()
     
     def get(self, path):
-        """Get response from cache (returns None if not found or expired)"""
+        """Mendapatkan respons dari cache (mengembalikan None jika tidak ditemukan atau telah kadaluwarsa)"""
         with self.lock:
             if path in self.cache:
                 return self.cache[path]
         return None
     
     def set(self, path, response):
-        """Cache a response if it's HTTP 200 OK"""
+        """Simpan respons dalam cache jika responsnya adalah HTTP 200 OK."""
         try:
-            # Extract status code from response
+            # Ambil kode status dari respons
             if response.startswith("HTTP/1.1 200"):
                 with self.lock:
                     self.cache[path] = response
@@ -59,18 +58,18 @@ class HTTPCache:
         return False
     
     def clear(self):
-        """Clear all cache"""
+        """Hapus semua cache"""
         with self.lock:
             self.cache.clear()
     
     def get_stats(self):
-        """Get cache statistics"""
+        """Buat dapat statisik cache"""
         with self.lock:
             return {"cached_paths": len(self.cache), "paths": list(self.cache.keys())}
 
 
 class HTTPProxy:
-    """TCP HTTP Proxy Server component"""
+    """Komponen TCP HTTP Proxy Server"""
     
     def __init__(self, bind_ip, bind_port, web_server_ip, web_server_port):
         self.bind_ip = bind_ip
@@ -90,7 +89,7 @@ class HTTPProxy:
         self.stats_lock = threading.Lock()
     
     def forward_to_web_server(self, request_data, client_ip):
-        """Forward HTTP request to web server and get response"""
+        """Teruskan permintaan HTTP ke server web dan dapatkan respons."""
         try:
             # Connect to web server
             server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -99,10 +98,10 @@ class HTTPProxy:
             start_time = time.time()
             server_socket.connect((self.web_server_ip, self.web_server_port))
             
-            # Send request to web server
+            # Kirim permintaan ke server web
             server_socket.sendall(request_data.encode('utf-8'))
             
-            # Receive response
+            # nerima response dari web server
             response = b""
             while True:
                 try:
@@ -135,7 +134,7 @@ class HTTPProxy:
             return "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\n\r\n502 Bad Gateway", 0
     
     def extract_path(self, request_data):
-        """Extract request path from HTTP request"""
+        """Ekstrak jalur permintaan dari permintaan HTTP"""
         try:
             lines = request_data.split('\r\n')
             request_line = lines[0]
@@ -147,7 +146,7 @@ class HTTPProxy:
         return None
     
     def handle_client(self, client_socket, client_address):
-        """Handle a single client connection"""
+        """Tangani satu koneksi klien"""
         start_time = time.time()
         client_ip = client_address[0]
         request_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -157,7 +156,7 @@ class HTTPProxy:
         try:
             client_socket.settimeout(SOCKET_TIMEOUT)
             
-            # Receive HTTP request
+            # Terima permintaan HTTP
             request_data = client_socket.recv(4096).decode('utf-8')
             
             if not request_data:
@@ -170,7 +169,7 @@ class HTTPProxy:
             with self.stats_lock:
                 self.stats["total_requests"] += 1
             
-            # Check cache
+            # meriksa cache
             cached_response = self.cache.get(path)
             if cached_response:
                 response = cached_response
@@ -178,23 +177,23 @@ class HTTPProxy:
                 with self.stats_lock:
                     self.stats["cache_hits"] += 1
             else:
-                # Forward to web server
+                # nerusin ke server web
                 response, forward_time = self.forward_to_web_server(request_data, client_ip)
                 cache_status = "MISS"
                 with self.stats_lock:
                     self.stats["cache_misses"] += 1
                 
-                # Try to cache successful responses
+                # buat simpan respons yang berhasil dalam cache.
                 self.cache.set(path, response)
             
-            # Send response to client
+            # Kirim respons ke klien
             client_socket.sendall(response.encode('utf-8', errors='ignore'))
             
-            # Calculate metrics
+            # ngitung metrik
             processing_time = (time.time() - start_time) * 1000
             response_size = len(response.encode('utf-8', errors='ignore'))
             
-            # Log transaction
+            # transaksi log
             logger.info(
                 f"TCP | Client: {client_ip} | Destination: {self.web_server_ip}:{self.web_server_port} | "
                 f"Cache: {cache_status} | Data Size: {data_size} bytes | "
@@ -209,7 +208,7 @@ class HTTPProxy:
             client_socket.close()
     
     def start(self):
-        """Start the HTTP proxy"""
+        """mulai proxy http"""
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         
@@ -225,7 +224,7 @@ class HTTPProxy:
                 try:
                     client_socket, client_address = self.socket.accept()
                     
-                    # Handle each client in a new thread
+                    # menangani setiap klien dalam thread baru
                     thread = threading.Thread(
                         target=self.handle_client,
                         args=(client_socket, client_address),
@@ -245,12 +244,12 @@ class HTTPProxy:
             logger.info("HTTP Proxy stopped")
     
     def stop(self):
-        """Stop the proxy"""
+        """nge stop proxy"""
         self.running = False
 
 
 class UDPQoSProxy:
-    """UDP QoS Proxy for forwarding datagrams"""
+    """Proxy UDP QoS untuk meneruskan datagram"""
     
     def __init__(self, bind_ip, bind_port, web_server_ip, web_server_port):
         self.bind_ip = bind_ip
@@ -267,22 +266,22 @@ class UDPQoSProxy:
         self.stats_lock = threading.Lock()
     
     def handle_packet(self, data, client_address):
-        """Forward a UDP packet to web server and relay response"""
+        """nerusin paket UDP ke server web dan ngirim balasan"""
         client_ip = client_address[0]
         packet_size = len(data)
         start_time = time.time()
         
         try:
-            # Send to web server
+            # nerusin ke server web
             forward_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             forward_socket.settimeout(SOCKET_TIMEOUT)
             forward_socket.sendto(data, (self.web_server_ip, self.web_server_port))
             
-            # Receive response
+            # nerima balasan
             response_data, _ = forward_socket.recvfrom(65535)
             forward_socket.close()
             
-            # Send back to client
+            # ngirim balasan ke klien
             self.socket.sendto(response_data, client_address)
             
             processing_time = (time.time() - start_time) * 1000
@@ -308,7 +307,7 @@ class UDPQoSProxy:
                 self.stats["failed_packets"] += 1
     
     def start(self):
-        """Start the UDP QoS proxy"""
+        """mulai proxy UDP QoS"""
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         
@@ -327,7 +326,7 @@ class UDPQoSProxy:
                     with self.stats_lock:
                         self.stats["total_packets"] += 1
                     
-                    # Handle packet in a thread to avoid blocking
+                    # buat nangani paket dalam thread untuk menghindari blocking
                     thread = threading.Thread(
                         target=self.handle_packet,
                         args=(data, client_address),
@@ -352,7 +351,7 @@ class UDPQoSProxy:
 
 
 def print_stats(http_proxy, udp_proxy):
-    """Print proxy statistics"""
+    """Ngeprint statistik proxy"""
     while True:
         time.sleep(30)  # Print stats every 30 seconds
         try:
@@ -379,39 +378,39 @@ def print_stats(http_proxy, udp_proxy):
 
 
 def main():
-    """Main proxy startup function"""
+    """main fungsi startup proxy"""
     logger.info("=" * 70)
     logger.info("Proxy Server starting...")
     logger.info(f"Proxy IP (local): 10.60.14.86")
     logger.info(f"Web Server IP: {WEB_SERVER_IP}")
     logger.info("=" * 70)
     
-    # Initialize HTTP Proxy
+    # inisiasi HTTP Proxy
     http_proxy = HTTPProxy(
         CLIENT_BIND_IP, CLIENT_TCP_PORT,
         WEB_SERVER_IP, WEB_SERVER_TCP_PORT
     )
     
-    # Initialize UDP QoS Proxy
+    # inisiasi UDP QoS Proxy
     udp_proxy = UDPQoSProxy(
         CLIENT_BIND_IP, CLIENT_UDP_PORT,
         WEB_SERVER_IP, WEB_SERVER_UDP_PORT
     )
     
-    # Start HTTP proxy in separate thread
+    # mulai HTTP proxy dalam thread terpisah
     http_thread = threading.Thread(target=http_proxy.start, daemon=False)
     http_thread.start()
     
-    # Start UDP proxy in separate thread
+    # mulai UDP proxy dalam thread terpisah
     udp_thread = threading.Thread(target=udp_proxy.start, daemon=True)
     udp_thread.start()
     
-    # Start stats printer in separate thread
+    # mulai stats printer dalam thread terpisah
     stats_thread = threading.Thread(target=print_stats, args=(http_proxy, udp_proxy), daemon=True)
     stats_thread.start()
     
     try:
-        # Keep the proxy running
+        # ngejaga supaya proxy tetep jalan
         while True:
             time.sleep(1)
     except KeyboardInterrupt:

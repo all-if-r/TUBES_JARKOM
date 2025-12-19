@@ -1,0 +1,7 @@
+timestamp,web_server_mode,client_mode,num_clients,packets_per_client,payload_bytes,interval_ms,client_id,sent,received,loss_percent,avg_rtt_ms,jitter_ms,throughput_bps
+2025-12-12T20:15:31.439527,threaded,multi,5,10,256,50,0,10,10,0.00,255.001,161.026,6810.10
+2025-12-12T20:15:31.439527,threaded,multi,5,10,256,50,1,10,10,0.00,255.033,162.370,6813.77
+2025-12-12T20:15:31.439527,threaded,multi,5,10,256,50,2,10,10,0.00,255.004,161.824,6814.77
+2025-12-12T20:15:31.439527,threaded,multi,5,10,256,50,3,10,10,0.00,254.954,160.933,6816.14
+2025-12-12T20:15:31.439527,threaded,multi,5,10,256,50,4,10,10,0.00,254.923,164.166,6818.14
+2025-12-12T20:15:31.439527,threaded,multi,5,10,256,50,ALL,50,50,0.00,254.983,162.064,34017.05

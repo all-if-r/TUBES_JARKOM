@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-TUBES JARKOM - Client Socket Programming
-Supports HTTP, Browser, and UDP QoS modes
+TUBES JARKOM - Pemrograman Socket Klien
+Mendukung mode HTTP, Browser, dan QoS UDP
 """
 
 import socket
@@ -15,20 +15,20 @@ from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 
-# ================== CHANGE IP/PORT HERE IF NETWORK CHANGES ==================
-# If the network configuration changes, update these values:
+# ================== UBAH IP/PORT DI SINI JIKA KONFIGURASI JARINGAN BERUBAH ==================
+# Jika konfigurasi jaringan berubah, perbarui nilai-nilai ini:
 PROXY_IP = "10.60.14.86"
 PROXY_TCP_PORT = 8080
 PROXY_UDP_PORT = 9090
 SOCKET_TIMEOUT = 5.0
 # ============================================================================
 
-# Base directory for saving files (repo-relative, works on any machine after clone)
+# Direktori dasar untuk menyimpan file (relatif ke repo, bekerja pada mesin apa pun setelah clone)
 BASE_DIR = Path(__file__).resolve().parent
 
 
 def print_menu():
-    """Display the main menu."""
+    """Tampilkan menu utama."""
     print("\n" + "=" * 60)
     print("TUBES JARKOM - Socket Programming Client")
     print("=" * 60)
@@ -40,25 +40,25 @@ def print_menu():
 
 
 def http_mode():
-    """HTTP mode: send GET request via TCP to proxy, display response."""
+    """Mode HTTP: kirim permintaan GET via TCP ke proxy, tampilkan respons."""
     print("\n--- Mode HTTP ---")
     try:
         path = input("Masukkan path (default '/'): ").strip()
         if not path:
             path = "/"
 
-        # Create TCP socket
+        # Buat socket TCP
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(SOCKET_TIMEOUT)
 
         print(f"Connecting to {PROXY_IP}:{PROXY_TCP_PORT}...")
         sock.connect((PROXY_IP, PROXY_TCP_PORT))
 
-        # Build and send HTTP GET request
+        # Susun dan kirim permintaan HTTP GET
         request = f"GET {path} HTTP/1.1\r\nHost: {PROXY_IP}\r\nConnection: close\r\n\r\n"
         sock.sendall(request.encode())
 
-        # Receive response
+        # Terima respons
         response = b""
         while True:
             chunk = sock.recv(4096)
@@ -68,15 +68,15 @@ def http_mode():
 
         sock.close()
 
-        # Parse response
+        # Parse respons
         response_str = response.decode(errors="ignore")
         lines = response_str.split("\r\n")
 
         if lines:
-            # Print status line
+            # Tampilkan baris status
             print(f"\n[Status]: {lines[0]}")
 
-            # Find and print body preview
+            # Temukan dan tampilkan preview body
             body_start = response_str.find("\r\n\r\n")
             if body_start != -1:
                 body = response_str[body_start + 4:]
@@ -97,21 +97,21 @@ def http_mode():
 
 
 def browser_mode():
-    """Browser mode: fetch HTML from proxy, save to file, open in browser."""
+    """Mode Browser: ambil HTML dari proxy, simpan ke file, buka di browser."""
     print("\n--- Mode Browser ---")
     try:
-        # Create TCP socket
+        # Buat socket TCP
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(SOCKET_TIMEOUT)
 
         print(f"Connecting to {PROXY_IP}:{PROXY_TCP_PORT}...")
         sock.connect((PROXY_IP, PROXY_TCP_PORT))
 
-        # Send HTTP GET request for /
+        # Kirim permintaan HTTP GET untuk /
         request = f"GET / HTTP/1.1\r\nHost: {PROXY_IP}\r\nConnection: close\r\n\r\n"
         sock.sendall(request.encode())
 
-        # Receive response
+        # Terima respons
         response = b""
         while True:
             chunk = sock.recv(4096)
@@ -121,21 +121,21 @@ def browser_mode():
 
         sock.close()
 
-        # Parse HTTP response
+        # Parse respons HTTP
         response_str = response.decode(errors="ignore")
         body_start = response_str.find("\r\n\r\n")
 
         if body_start != -1:
             body = response_str[body_start + 4:]
 
-            # Save to file using repo-relative path
+            # Simpan ke file menggunakan path relatif repo
             output_file = BASE_DIR / "browser_result.html"
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(body)
 
             print(f"✓ HTML saved to {output_file}")
 
-            # Open in browser
+            # Buka di browser
             browser_path = output_file.as_uri()
             webbrowser.open(browser_path)
             print("✓ Browser opened successfully.")
@@ -151,15 +151,15 @@ def browser_mode():
         print(f"✗ Error: {type(e).__name__}: {e}")
 def udp_qos_worker(client_id, num_packets, payload_size, interval_ms, results_dict):
     """
-    Worker function for UDP QoS test.
-    Sends N packets and measures RTT, jitter, and throughput for this client.
+    Fungsi worker untuk tes QoS UDP.
+    Mengirim N paket dan mengukur RTT, jitter, dan throughput untuk client ini.
 
-    Args:
-        client_id: Unique ID for this client
-        num_packets: Number of packets to send (typically 10)
-        payload_size: Size of payload in bytes
-        interval_ms: Interval between packets in milliseconds
-        results_dict: Shared dictionary to store results per client
+    Argumen:
+        client_id: ID unik untuk client ini
+        num_packets: Jumlah paket yang dikirim (biasanya 10)
+        payload_size: Ukuran payload dalam byte
+        interval_ms: Interval antar paket dalam milidetik
+        results_dict: Kamus bersama untuk menyimpan hasil per client
     """
     results = {
         "sent": 0,
@@ -178,22 +178,22 @@ def udp_qos_worker(client_id, num_packets, payload_size, interval_ms, results_di
 
         for seq in range(num_packets):
             try:
-                # Build payload with client ID, sequence, and timestamp
+                # Susun payload dengan ID client, urutan, dan timestamp
                 ts_ns = int(time.time_ns())
                 payload = f"cid={client_id};seq={seq};ts={ts_ns}".encode()
 
-                # Pad to payload_size
+                # Isi hingga payload_size
                 if len(payload) < payload_size:
                     payload += b"\x00" * (payload_size - len(payload))
                 else:
                     payload = payload[:payload_size]
 
-                # Send packet
+                # Kirim paket
                 send_time_ns = time.time_ns()
                 sock.sendto(payload, (PROXY_IP, PROXY_UDP_PORT))
                 results["sent"] += 1
 
-                # Wait for response
+                # Tunggu respons
                 try:
                     response, _ = sock.recvfrom(payload_size + 64)
                     recv_time_ns = time.time_ns()
@@ -203,15 +203,15 @@ def udp_qos_worker(client_id, num_packets, payload_size, interval_ms, results_di
                     results["total_bytes"] += len(response)
 
                 except socket.timeout:
-                    # Packet lost, no response
+                    # Paket hilang, tidak ada respons
                     pass
 
-                # Wait interval before next packet (except after last packet)
+                # Tunggu interval sebelum paket berikutnya (kecuali setelah paket terakhir)
                 if seq < num_packets - 1:
                     time.sleep(interval_sec)
 
-            except Exception as e:
-                # Error sending/receiving individual packet
+            except Exception:
+                # Kesalahan saat mengirim/menerima paket individual
                 pass
 
         results["end_time"] = time.time()
@@ -224,11 +224,11 @@ def udp_qos_worker(client_id, num_packets, payload_size, interval_ms, results_di
 
 
 def udp_qos_mode():
-    """UDP QoS mode: test packet delivery and measure QoS metrics."""
+    """Mode QoS UDP: uji pengiriman paket dan ukur metrik QoS."""
     print("\n--- Mode UDP (QoS) ---")
 
     try:
-        # Get number of clients
+        # Ambil jumlah client
         while True:
             try:
                 num_clients = int(input("Jumlah client yang diinginkan: ").strip())
@@ -239,14 +239,14 @@ def udp_qos_mode():
             except ValueError:
                 print("✗ Input tidak valid, masukkan angka")
 
-        # Get web server mode for CSV naming
+        # Ambil mode web_server untuk penamaan CSV
         while True:
             web_server_mode = input("Mode web_server saat ini? (single/threaded): ").strip().lower()
             if web_server_mode in ("single", "threaded"):
                 break
             print("✗ Pilih 'single' atau 'threaded'")
 
-        # Get QoS parameters from user
+        # Ambil parameter QoS dari user
         payload_input = input("Payload size (bytes, default 256): ").strip()
         try:
             payload_size = int(payload_input) if payload_input else 256
@@ -263,24 +263,24 @@ def udp_qos_mode():
         except ValueError:
             interval_ms = 50
 
-        print(f"\n[QoS Configuration]")
+        print(f"\n[Konfigurasi QoS]")
         print(f"  Num clients: {num_clients}")
         print(f"  Packets per client: 10")
         print(f"  Payload size: {payload_size} bytes")
         print(f"  Interval: {interval_ms} ms")
         print()
 
-        # Determine single vs multi
+        # Tentukan single vs multi
         client_mode = "single" if num_clients == 1 else "multi"
 
-        # Run QoS test
+        # Jalankan tes QoS
         print(f"Starting UDP QoS test ({num_clients} client(s))...")
 
         results_dict = {}
         threads = []
         test_start = time.time()
 
-        # Create and start threads
+        # Buat dan mulai thread-thread
         for cid in range(num_clients):
             thread = threading.Thread(
                 target=udp_qos_worker,
@@ -290,14 +290,14 @@ def udp_qos_mode():
             threads.append(thread)
             thread.start()
 
-        # Wait for all threads
+        # Tunggu semua thread selesai
         for thread in threads:
             thread.join()
 
         test_end = time.time()
         test_duration = test_end - test_start
 
-        # Compute per-client statistics
+        # Hitung statistik per-client
         print("\n" + "=" * 80)
         print("Per-Client QoS Statistics:")
         print("=" * 80)
@@ -313,13 +313,13 @@ def udp_qos_mode():
             rtts = result["rtts"]
             avg_rtt_ms = statistics.mean(rtts) if rtts else 0.0
 
-            # Jitter: average absolute difference between consecutive RTTs
+            # Jitter: rata-rata selisih absolut antara RTT berurutan
             jitter_ms = 0.0
             if len(rtts) > 1:
                 diffs = [abs(rtts[i + 1] - rtts[i]) for i in range(len(rtts) - 1)]
                 jitter_ms = statistics.mean(diffs)
 
-            # Throughput: total bytes / duration
+            # Throughput: total byte / durasi
             duration = result["end_time"] - result["start_time"] if result["end_time"] else 0.0001
             throughput_bps = (result["total_bytes"] * 8 / duration) if duration > 0 else 0.0
 
@@ -339,7 +339,7 @@ def udp_qos_mode():
             print(f"  Avg RTT: {avg_rtt_ms:.3f} ms, Jitter: {jitter_ms:.3f} ms")
             print(f"  Throughput: {throughput_bps:.2f} bps ({throughput_bps/1000:.2f} kbps)")
 
-        # Compute aggregate statistics
+        # Hitung statistik agregat
         print("\n" + "=" * 80)
         print("Aggregate QoS Statistics:")
         print("=" * 80)
@@ -348,16 +348,16 @@ def udp_qos_mode():
         total_received = sum(s["received"] for s in client_stats.values())
         overall_loss_percent = 100.0 * (total_sent - total_received) / total_sent if total_sent > 0 else 0.0
 
-        # Overall avg RTT: average of all RTT samples across all clients
+        # Rata-rata RTT keseluruhan: rata-rata semua sampel RTT dari semua client
         all_rtts = []
         for cid in results_dict:
             all_rtts.extend(results_dict[cid]["rtts"])
         overall_avg_rtt = statistics.mean(all_rtts) if all_rtts else 0.0
 
-        # Overall jitter: average of per-client jitter values
+        # Jitter keseluruhan: rata-rata nilai jitter per-client
         overall_jitter = statistics.mean(s["jitter_ms"] for s in client_stats.values()) if client_stats else 0.0
 
-        # Overall throughput: sum of bytes / overall test duration
+        # Throughput keseluruhan: jumlah byte / durasi tes keseluruhan
         total_bytes = sum(s["total_bytes"] for s in client_stats.values())
         overall_throughput_bps = (total_bytes * 8 / test_duration) if test_duration > 0 else 0.0
 
@@ -367,7 +367,7 @@ def udp_qos_mode():
         print(f"Overall Jitter: {overall_jitter:.3f} ms")
         print(f"Overall Throughput: {overall_throughput_bps:.2f} bps ({overall_throughput_bps/1000:.2f} kbps)")
 
-        # Save to CSV
+        # Simpan ke CSV
         csv_filename = f"{web_server_mode}_{client_mode}.csv"
         csv_path = BASE_DIR / csv_filename
 
@@ -395,7 +395,7 @@ def udp_qos_mode():
 
                 timestamp = datetime.now().isoformat()
 
-                # Per-client rows
+                # Baris per-client
                 for cid in sorted(client_stats.keys()):
                     stat = client_stats[cid]
                     writer.writerow([
@@ -415,7 +415,7 @@ def udp_qos_mode():
                         f"{stat['throughput_bps']:.2f}",
                     ])
 
-                # Aggregate row
+                # Baris agregat
                 writer.writerow([
                     timestamp,
                     web_server_mode,

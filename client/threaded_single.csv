@@ -1,0 +1,3 @@
+timestamp,web_server_mode,client_mode,num_clients,packets_per_client,payload_bytes,interval_ms,client_id,sent,received,loss_percent,avg_rtt_ms,jitter_ms,throughput_bps
+2025-12-12T20:00:36.200702,threaded,single,1,10,256,50,0,10,10,0.00,299.002,219.560,5939.61
+2025-12-12T20:00:36.200702,threaded,single,1,10,256,50,ALL,10,10,0.00,299.002,219.560,5933.89
